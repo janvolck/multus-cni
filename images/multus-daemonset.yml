@@ -18,30 +18,12 @@ spec:
       storage: true
       schema:
         openAPIV3Schema:
-          description: 'NetworkAttachmentDefinition is a CRD schema specified by the Network Plumbing
-            Working Group to express the intent for attaching pods to one or more logical or physical
-            networks. More information available at: https://github.com/k8snetworkplumbingwg/multi-net-spec'
           type: object
           properties:
-            apiVersion:
-              description: 'APIVersion defines the versioned schema of this represen
-                tation of an object. Servers should convert recognized schemas to the
-                latest internal value, and may reject unrecognized values. More info:
-                https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-              type: string
-            kind:
-              description: 'Kind is a string value representing the REST resource this
-                object represents. Servers may infer this from the endpoint the client
-                submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-              type: string
-            metadata:
-              type: object
             spec:
-              description: 'NetworkAttachmentDefinition spec defines the desired state of a network attachment'
               type: object
               properties:
                 config:
-                  description: 'NetworkAttachmentDefinition config is a JSON-formatted CNI configuration'
                   type: string
 ---
 kind: ClusterRole
@@ -61,15 +43,6 @@ rules:
       - pods/status
     verbs:
       - get
-      - update
-  - apiGroups:
-      - ""
-      - events.k8s.io
-    resources:
-      - events
-    verbs:
-      - create
-      - patch
       - update
 ---
 kind: ClusterRoleBinding
@@ -171,7 +144,7 @@ spec:
       serviceAccountName: multus
       containers:
       - name: kube-multus
-        image: nfvpe/multus:v3.4.1
+        image: nfvpe/multus:v3.4
         command: ["/entrypoint.sh"]
         args:
         - "--multus-conf-file=auto"
@@ -239,6 +212,72 @@ spec:
       - name: kube-multus
         # ppc64le support requires multus:latest for now. support 3.3 or later.
         image: nfvpe/multus:latest-ppc64le
+        command: ["/entrypoint.sh"]
+        args:
+        - "--multus-conf-file=auto"
+        - "--cni-version=0.3.1"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "90Mi"
+          limits:
+            cpu: "100m"
+            memory: "90Mi"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: cni
+          mountPath: /host/etc/cni/net.d
+        - name: cnibin
+          mountPath: /host/opt/cni/bin
+        - name: multus-cfg
+          mountPath: /tmp/multus-conf
+      volumes:
+        - name: cni
+          hostPath:
+            path: /etc/cni/net.d
+        - name: cnibin
+          hostPath:
+            path: /opt/cni/bin
+        - name: multus-cfg
+          configMap:
+            name: multus-cni-config
+            items:
+            - key: cni-conf.json
+              path: 70-multus.conf
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-multus-ds-armv7
+  namespace: kube-system
+  labels:
+    tier: node
+    app: multus
+    name: multus
+spec:
+  selector:
+    matchLabels:
+      name: multus
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: multus
+        name: multus
+    spec:
+      hostNetwork: true
+      nodeSelector:
+        kubernetes.io/arch: arm
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      serviceAccountName: multus
+      containers:
+      - name: kube-multus
+        image: janvolck/multus-cni:latest-armv7
         command: ["/entrypoint.sh"]
         args:
         - "--multus-conf-file=auto"
